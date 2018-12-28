@@ -10,10 +10,11 @@
 #include <DallasTemperature.h>
 #include <limits.h>
 #include <max6675.h>
-
+#include <PWM.hpp>
 
 
 #define PIN_SENSOR_DHT 2
+#define PIN_PUMP_PWM 3
 #define PIN_SD 4
 #define PIN_BTN_LEFT 6
 #define PIN_BTN_RIGHT 7
@@ -43,6 +44,8 @@
 #define BTN_HOLD_TIME 15                      //cas ako dlho musi byt stlacene tlacidlo (ms)
 #define REFRESH_PERIOD 10                     //perioda zapisu na SD kartu (min)
 
+#define PUMP_OFF_THRESHOLD 9000
+
 LiquidCrystal_I2C lcd(LCD_ADDRESS, LCD_COLS, LCD_ROWS);
 
 EthernetUDP udp;
@@ -57,6 +60,7 @@ DallasTemperature sensorsDS(&oneWire);
 DHT dht(PIN_SENSOR_DHT, DHT_TYPE);
 MAX6675 max_6675(PIN_MAX6675_SCK, PIN_MAX6675_CS, PIN_MAX6675_SO);
 
+PWM pwm(PIN_PUMP_PWM);
 
 //popisy jednotlivych nameranych hodnot
 //zobrazovane na displeji a webovom serveri
@@ -113,6 +117,7 @@ byte ds_adress[][8] {
 
 //pole pre uskladnenie nameranych hodnot
 int data[TOTAL_SENSOR_COUNT];
+unsigned int pumpPwmValue = 0;
 
 
 boolean written = false;
@@ -152,6 +157,7 @@ void setup() {
   initSD();
   sensorsDS.begin();
   dht.begin();
+  pwm.begin(true);
   initLCD();
 }
 
@@ -295,6 +301,9 @@ String getData() {
   //precitame teplotu a vlhkost z DHT senzora
   data[SENSOR_DS_COUNT] = dht.readTemperature() * 100;
   data[SENSOR_DS_COUNT+1] = dht.readHumidity() * 100;
+
+  //pwm hodnota z cerpadla
+  pumpPwmValue = pwm.getValue();
 
   //a rovnakym sposob ulozime a zapiseme
   line += '|';
@@ -496,6 +505,20 @@ void createServer(EthernetClient client) {
 //        client.println("</td>");
 //        
 //        client.println("</tr>");
+
+        client.println("<tr>");
+          
+        client.print("<td>Cerpadlo</td>");
+        client.print("<td>");
+        if (pumpPwmValue > PUMP_OFF_THRESHOLD) {
+          client.print("OFF - ");
+        } else {
+          client.print("ON - ");
+        }
+        client.print(pumpPwmValue);
+        client.println("</td>");
+        
+        client.println("</tr>");
         
 
         client.println("</table>");
@@ -608,4 +631,3 @@ void sendData() {
     client.stop();
   }
 }
-
