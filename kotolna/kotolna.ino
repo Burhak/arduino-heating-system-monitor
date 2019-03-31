@@ -32,8 +32,10 @@
 
 #define TIME_CHANGE_RULE_EEPROM_ADDRESS 100
 
-#define SENSOR_DS_COUNT 11                    //pocet DS senzorov
-#define TOTAL_SENSOR_COUNT SENSOR_DS_COUNT+3  //pocet DS senzorov +2 hodnoty DHT22 +1 MAX6675
+#define SENSOR_DS_COUNT 11                                          //pocet DS senzorov
+#define SENSOR_OTHER_COUNT 4                                        //pocet ostatnych senzorov
+#define TOTAL_SENSOR_COUNT (SENSOR_DS_COUNT + SENSOR_OTHER_COUNT)     //pocet vsetkych senzorov
+
 #define DHT_TYPE DHT22                        //typ DHT senzora
 
 #define LCD_ADDRESS 0x3F
@@ -45,6 +47,80 @@
 #define REFRESH_PERIOD 10                     //perioda zapisu na SD kartu (min)
 
 #define PUMP_OFF_THRESHOLD 9000
+
+//vytvori z celeho cisla retazec s pozadovanym poctom cifier (uvodne nuly)
+String toString(int value, int places) {
+  String s = String(value);
+  while (s.length() < places) {
+    s = '0' + s;
+  }
+  return s;
+}
+
+
+String tempToString(int temp) {
+ String s = "";
+ if (temp < 0) {
+   s += '-';
+ }
+ 
+ s += String(abs(temp / 100));
+ s += ".";
+ s += toString(abs(temp % 100), 2);
+ return s;
+}
+
+class Sensor {
+public:
+  String caption;
+  String urlCaption;
+  
+  virtual String getDisplayData() = 0;
+  virtual String getRawData() = 0;
+  
+  Sensor(String c, String urlC) {
+    caption = c;
+    urlCaption = urlC;
+  }
+};
+
+class TempSensor: public Sensor {
+  public:
+    int value;
+    TempSensor(String c, String urlC): Sensor(c, urlC) {};
+    String getDisplayData() {
+      return tempToString(value) + " C";
+    }
+    String getRawData() {
+      return tempToString(value);
+    }
+};
+
+class HumSensor: public Sensor {
+  public:
+    int value;
+    HumSensor(String c, String urlC): Sensor(c, urlC) {};
+    String getDisplayData() {
+      return tempToString(value) + " %";
+    }
+    String getRawData() {
+      return tempToString(value);
+    }
+};
+
+class PwmSensor: public Sensor {
+  public:
+    unsigned int value;
+    PwmSensor(String c, String urlC): Sensor(c, urlC) {};
+    String getDisplayData() {
+      if (value > PUMP_OFF_THRESHOLD) return "OFF - " + String(value);
+      return "ON - " + String(value);
+    }
+    String getRawData() {
+      if (value > PUMP_OFF_THRESHOLD) return "0";
+      return "1";
+    }
+};
 
 LiquidCrystal_I2C lcd(LCD_ADDRESS, LCD_COLS, LCD_ROWS);
 
@@ -61,42 +137,6 @@ DHT dht(PIN_SENSOR_DHT, DHT_TYPE);
 MAX6675 max_6675(PIN_MAX6675_SCK, PIN_MAX6675_CS, PIN_MAX6675_SO);
 
 PWM pwm(PIN_PUMP_PWM);
-
-//popisy jednotlivych nameranych hodnot
-//zobrazovane na displeji a webovom serveri
-String captions[] = {
-  "Izba S",
-  "Vonku S",
-  "Kotol vyvod",
-  "Kotol spiat",
-  "Radiatory spiat.",
-  "Radiatory privod",
-  "Bojler TUV",
-  "Aku TUV",
-  "Aku hore",
-  "Aku stred",
-  "Aku dole",
-  "Vonku J teplota",
-  "Vonku J vlhkost",
-  "Spaliny"
-};
-
-String urlCaptions[] = {
-  "t_izba_s",
-  "t_vonku_s",
-  "t_kotol",
-  "t_kotol_sp",
-  "t_rad_sp",
-  "t_rad_pr",
-  "t_bojler",
-  "t_aku_tuv",
-  "t_aku_hore",
-  "t_aku_stred",
-  "t_aku_dole",
-  "t_vonku_j",
-  "v_vonku_j",
-  "t_spaliny"
-};
 
 
 byte ds_adress[][8] {
@@ -116,9 +156,28 @@ byte ds_adress[][8] {
 
 
 //pole pre uskladnenie nameranych hodnot
-int data[TOTAL_SENSOR_COUNT];
-unsigned int pumpPwmValue = 0;
+TempSensor dsSensors[] = {
+  TempSensor("Izba S", "t_izba_s"),
+  TempSensor("Vonku S", "t_vonku_s"),
+  TempSensor("Kotol vyvod", "t_kotol"),
+  TempSensor("Kotol spiat.", "t_kotol_sp"),
+  TempSensor("Radiatory spiat.", "t_rad_sp"),
+  TempSensor("Radiatory privod", "t_rad_pr"),
+  TempSensor("Bojler TUV", "t_bojler"),
+  TempSensor("Aku TUV", "t_aku_tuv"),
+  TempSensor("Aku hore", "t_aku_hore"),
+  TempSensor("Aku stred", "t_aku_stred"),
+  TempSensor("Aku dole", "t_aku_dole")
+};
 
+HumSensor humDdhtSouth("Vonku J vlhkost","v_vonku_j");
+TempSensor tempDdhtSouth("Vonku J teplota", "t_vonku_j");
+
+TempSensor exhaustGasMax("Spaliny", "t_spaliny");
+
+PwmSensor pumpPwm("Cerpadlo", "cerpadlo");
+
+Sensor* data[TOTAL_SENSOR_COUNT];
 
 boolean written = false;
 unsigned long turnOffLCDin = ULONG_MAX;
@@ -137,6 +196,14 @@ unsigned long btnRightPressedAt = 0;
 
 
 void setup() {
+  for (int i = 0; i < SENSOR_DS_COUNT + 4; i++) {
+    data[i] = &dsSensors[i];
+  }
+  data[SENSOR_DS_COUNT + 0] = &humDdhtSouth;
+  data[SENSOR_DS_COUNT + 1] = &tempDdhtSouth;
+  data[SENSOR_DS_COUNT + 2] = &exhaustGasMax;
+  data[SENSOR_DS_COUNT + 3] = &pumpPwm;
+  
   Serial.begin(9600);
   delay(250);
 
@@ -263,17 +330,12 @@ void lcdPrint() {
   //vymazeme displej a nastavime kurzor na 0,0
   lcd.clear();
   //zobrazime popis
-  lcd.print(captions[displayIndex]);
+  lcd.print(data[displayIndex]->caption);
   //posunieme kurzor na zaciatok 2.riadku
   lcd.setCursor(0,1);
   
   //vypiseme hodnotu
-  lcd.print(tempToString(data[displayIndex]));
-  if (displayIndex == SENSOR_DS_COUNT+1) {
-    lcd.print(" %");
-  } else {
-    lcd.print(" C");
-  }
+  lcd.print(data[displayIndex]->getDisplayData());
 
   //predlzime cas zhasnutia displeja o LCD_TURN_OFF_IN
   turnOffLCDin = millis() + LCD_TURN_OFF_IN;
@@ -291,29 +353,25 @@ String getData() {
   for (int i = 0; i < SENSOR_DS_COUNT; i++) {
     //kazdu teplotu ulozime do pola ako cele cislo  ( *100)
     //stacia nam 2 des. miesta
-    data[i] = sensorsDS.getTempC(ds_adress[i]) * 100;
-    //pridame oddelovac |
-    line += '|';
-    //zapiseme celu cast
-    line += tempToString(data[i]);
+    dsSensors[i].value = sensorsDS.getTempC(ds_adress[i]) * 100;
   }
 
   //precitame teplotu a vlhkost z DHT senzora
-  data[SENSOR_DS_COUNT] = dht.readTemperature() * 100;
-  data[SENSOR_DS_COUNT+1] = dht.readHumidity() * 100;
+  tempDdhtSouth.value = dht.readTemperature() * 100;
+  humDdhtSouth.value = dht.readHumidity() * 100;
 
   //pwm hodnota z cerpadla
-  pumpPwmValue = pwm.getValue();
+  pumpPwm.value = pwm.getValue();
 
-  //a rovnakym sposob ulozime a zapiseme
-  line += '|';
-  line += tempToString(data[SENSOR_DS_COUNT]);
-  line += '|';
-  line += tempToString(data[SENSOR_DS_COUNT+1]);
-
-  data[SENSOR_DS_COUNT+2] = max_6675.readCelsius() * 100;
-  line += '|';
-  line += tempToString(data[SENSOR_DS_COUNT+2]);
+  // teplota zo senzora MAX6675
+  exhaustGasMax.value = max_6675.readCelsius() * 100;
+  
+  for (int i = 0; i < TOTAL_SENSOR_COUNT; i++) {
+    //pridame oddelovac |
+    line += '|';
+    //zapiseme celu cast
+    line += data[i]->getRawData();
+  }
     
   return line;
 }
@@ -351,27 +409,7 @@ String getFileName() {
 }
 
 
-//vytvori z celeho cisla retazec s pozadovanym poctom cifier (uvodne nuly)
-String toString(int value, int places) {
-  String s = String(value);
-  while (s.length() < places) {
-    s = '0' + s;
-  }
-  return s;
-}
 
-
-String tempToString(int temp) {
- String s = "";
- if (temp < 0) {
-   s += '-';
- }
- 
- s += String(abs(temp / 100));
- s += ".";
- s += toString(abs(temp % 100), 2);
- return s;
-}
 
 
 
@@ -481,16 +519,12 @@ void createServer(EthernetClient client) {
           client.println("<tr>");
           
           client.print("<td>");
-          client.print(captions[i]);
+          client.print(data[i]->caption);
           client.println("</td>");
           
           client.print("<td>");
-          client.print(tempToString(data[i]));
-          if (i == SENSOR_DS_COUNT+1) {
-            client.print(" %");
-          } else {
-            client.print(" C");
-          }
+          client.print(data[i]->getDisplayData());
+
           client.println("</td>");
           
           client.println("</tr>");
@@ -498,27 +532,17 @@ void createServer(EthernetClient client) {
 
 //        client.println("<tr>");
 //          
-//        client.print("<td>Spaliny</td>");
+//        client.print("<td>Cerpadlo</td>");
 //        client.print("<td>");
-//        client.print(max_6675.readCelsius());
-//        client.print(" C");
+//        if (pumpPwmValue > PUMP_OFF_THRESHOLD) {
+//          client.print("OFF - ");
+//        } else {
+//          client.print("ON - ");
+//        }
+//        client.print(pumpPwmValue);
 //        client.println("</td>");
 //        
 //        client.println("</tr>");
-
-        client.println("<tr>");
-          
-        client.print("<td>Cerpadlo</td>");
-        client.print("<td>");
-        if (pumpPwmValue > PUMP_OFF_THRESHOLD) {
-          client.print("OFF - ");
-        } else {
-          client.print("ON - ");
-        }
-        client.print(pumpPwmValue);
-        client.println("</td>");
-        
-        client.println("</tr>");
         
 
         client.println("</table>");
@@ -618,9 +642,9 @@ void sendData() {
     for (int i = 0; i < TOTAL_SENSOR_COUNT; i++) {
 
       client.print("&");
-      client.print(urlCaptions[i]);
+      client.print(data[i]->urlCaption);
       client.print("=");
-      client.print(tempToString(data[i]));
+      client.print(data[i]->getRawData());
          
     }
 
