@@ -32,7 +32,7 @@
 
 #define TIME_CHANGE_RULE_EEPROM_ADDRESS 100
 
-#define SENSOR_DS_COUNT 11                                          //pocet DS senzorov
+#define SENSOR_DS_COUNT 16                                          //pocet DS senzorov
 #define SENSOR_OTHER_COUNT 4                                        //pocet ostatnych senzorov
 #define TOTAL_SENSOR_COUNT (SENSOR_DS_COUNT + SENSOR_OTHER_COUNT)     //pocet vsetkych senzorov
 
@@ -150,7 +150,12 @@ byte ds_adress[][8] {
   {40, 255, 215, 171, 162, 22, 4, 228}, // 6 : aku TUV
   {40, 255, 74, 230, 192, 23, 5, 178},  // - : aku hore
   {40, 255, 113, 231, 192, 23, 5, 201}, // - : aku stred
-  {40, 255, 191, 174, 162, 22, 4, 74}   // 9 : aku dole
+  {40, 255, 191, 174, 162, 22, 4, 74},  // 9 : aku dole
+  {40, 255, 239, 177, 162, 22, 4, 125}, // - : plyn 1
+  {40, 255, 17, 230, 192, 23, 5, 87},   // - : plyn 2
+  {40, 92, 122, 69, 146, 7, 2, 73},     // - : strecha 1
+  {40, 191, 5, 69, 146, 9, 2, 231},     // - : strecha 2
+  {40, 103, 155, 69, 146, 3, 2, 112}    // - : strecha 3
   
 };
 
@@ -167,7 +172,12 @@ TempSensor dsSensors[] = {
   TempSensor("Aku TUV", "t_aku_tuv"),
   TempSensor("Aku hore", "t_aku_hore"),
   TempSensor("Aku stred", "t_aku_stred"),
-  TempSensor("Aku dole", "t_aku_dole")
+  TempSensor("Aku dole", "t_aku_dole"),
+  TempSensor("Plyn 1", "t_plyn_1"),
+  TempSensor("Plyn 2", "t_plyn_2"),
+  TempSensor("Strecha 1", "t_strecha_1"),
+  TempSensor("Strecha 2", "t_strecha_2"),
+  TempSensor("Strecha 3", "t_strecha_3")
 };
 
 HumSensor humDdhtSouth("Vonku J vlhkost","v_vonku_j");
